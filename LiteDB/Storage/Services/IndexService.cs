@@ -311,6 +311,10 @@ namespace LiteDB
         {
             var last = cur;
 
+            //TODO: implement a better solution to get first occurence
+            //      this solution is ok to few equals keys, but slow if there is too much
+            //      needs use level do skip faster
+
             while (cur.Key.CompareTo(value) == 0)
             {
                 last = cur;
