@@ -16,14 +16,12 @@ using System.Threading;
 namespace LiteDB
 {
     /// <summary>
-    /// Represent each occurence of a token in a text search
+    /// Represent 
     /// </summary>
-    public class TokenOccurence
+    public class FindResult
     {
-        public int Position { get; set; }
+        public BsonValue Id { get; set; }
 
-        public int Offset { get; set; }
-
-        public int Length { get; set; }
+        public int Score { get; set; }
     }
 }

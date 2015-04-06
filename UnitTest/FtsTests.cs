@@ -12,11 +12,11 @@ namespace UnitTest
     public class FtsTest
     {
         [TestMethod]
-        public void FtsParser_Test()
+        public void FtsAnalyzer_Test()
         {
             var a = new StandardAnalyzer();
 
-            var d1 = a.ParseContent("This awoke Is Sparta, began now awoken!");
+            var d1 = a.ParseContent("Getting Started");
 
 
         }
