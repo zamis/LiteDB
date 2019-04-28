@@ -1,12 +1,15 @@
 ﻿using LiteDB;
 using LiteDB.Engine;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace LiteDB.Demo
@@ -15,61 +18,45 @@ namespace LiteDB.Demo
     {
         static void Main(string[] args)
         {
-            var sw = new Stopwatch();
+            Console.WriteLine("LITE DB v5");
+            Console.WriteLine("===========================================================");
 
-            TestEngine.Run(sw);
+            //var json = "{a:1, nome: 'Jose', arr: [1, 2, 3, 4], items: [ { id:1, precos: [10,20] }, { id:2, precos:[40] } ]}";
+            var json = "{id: 1, nomes:['jose','maria','carlos']}";
 
-            sw.Stop();
+            var doc = JsonSerializer.Deserialize(json).AsDocument;
 
-            Console.WriteLine(sw.ElapsedMilliseconds);
-            Console.ReadKey();
-
-        }
-    }
-
-    public class TestEngine
-    {
-        static string PATH = @"D:\memory-file.db";
-        static string PATH_LOG = @"D:\memory-file-log.db";
-
-        static BsonDocument doc = new BsonDocument
-        {
-            ["_id"] = 1,
-            ["name"] = "NoSQL Database",
-            ["birthday"] = new DateTime(1977, 10, 30),
-            ["phones"] = new BsonArray { "000000", "12345678" },
-            //["large"] = new byte[500],
-            ["active"] = true
-        }; // 109b (with no-large field)
-
-        public static void Run(Stopwatch sw)
-        {
-            File.Delete(PATH);
-            File.Delete(PATH_LOG);
-
-            sw.Start();
-
-            using (var db = new LiteEngine(new EngineSettings { Filename = PATH, CheckpointOnShutdown = true }))
+            var source = new List<BsonDocument>
             {
+                JsonSerializer.Deserialize("{id: 1, nomes:['jose','maria','carlos']}").AsDocument,
+                JsonSerializer.Deserialize("{id: 2, nomes:['maria']}").AsDocument,
+                JsonSerializer.Deserialize("{id: 3, nomes:['jose','maria']}").AsDocument,
+                JsonSerializer.Deserialize("{id: 4, nomes:['carlos']}").AsDocument,
+            };
 
-                IEnumerable<BsonDocument> source()
-                {
-                    for (var i = 0; i < 1000000; i++)
-                    {
-                        doc["_id"] = i + 1;
-                        yield return doc;
-                    }
-                }
+            var e = BsonExpression.Create("*");
 
-                //db.CreateCollection("col1");
+            //e.Parameters["aa"] = 1234;
 
-                db.Insert("col1", source(), BsonAutoId.Int32);
+            //var s = e.ExecuteScalar(doc);
+            var r = e.Execute(source).ToArray();
 
-                //sw.Stop();
+            //Console.WriteLine(r);
 
-            }
-
+            Console.WriteLine("===========================================================");
+            Console.WriteLine("End");
+            Console.ReadKey();
         }
-
     }
+
+    public class User
+    {
+        public int Id { get; set; }
+        public string City { get; set; }
+        public string Name { get; set; }
+        public List<User> Children { get; set; }
+    }
+
+
+
 }

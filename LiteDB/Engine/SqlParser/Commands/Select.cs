@@ -43,9 +43,9 @@ namespace LiteDB.Engine
             if (from.Type == TokenType.EOF || from.Type == TokenType.SemiColon)
             {
                 // select with no FROM - just run expression (avoid DUAL table, Mr. Oracle)
-                var result = query.Select.Execute(true);
+                var result = query.Select.Execute();
 
-                var defaultName = query.Select.DefaultFieldName();
+                var defaultName = "expr";
 
                 return new BsonDataReader(result.Select(x => x.IsDocument ? x.AsDocument : new BsonDocument { [defaultName] = x }), null);
             }
