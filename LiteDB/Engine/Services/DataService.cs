@@ -28,7 +28,7 @@ namespace LiteDB.Engine
         /// </summary>
         public PageAddress Insert(BsonDocument doc)
         {
-            var bytesLeft = doc.GetBytesCount();
+            var bytesLeft = doc.GetBytesCount(true);
 
             if (bytesLeft > MAX_DOCUMENT_SIZE) throw new LiteException(0, "Document size exceed {0} limit", MAX_DOCUMENT_SIZE);
 
@@ -36,16 +36,14 @@ namespace LiteDB.Engine
 
             IEnumerable<BufferSlice> source()
             {
-                byte dataIndex = 0;
+                var blockIndex = 0;
                 DataBlock lastBlock = null;
 
                 while (bytesLeft > 0)
                 {
                     var bytesToCopy = Math.Min(bytesLeft, MAX_DATA_BYTES_PER_PAGE);
                     var dataPage = _snapshot.GetFreePage<DataPage>(bytesToCopy + DataBlock.DATA_BLOCK_FIXED_SIZE);
-                    var dataBlock = dataPage.InsertBlock(bytesToCopy, dataIndex);
-
-                    dataIndex++;
+                    var dataBlock = dataPage.InsertBlock(bytesToCopy, blockIndex++ > 0);
 
                     if (lastBlock != null)
                     {
@@ -66,7 +64,8 @@ namespace LiteDB.Engine
             // must be fastest as possible
             using (var w = new BufferWriter(source()))
             {
-                w.WriteDocument(doc);
+                // already bytes count calculate at method start
+                w.WriteDocument(doc, false);
                 w.Consume();
             }
 
@@ -74,60 +73,80 @@ namespace LiteDB.Engine
         }
 
         /// <summary>
-        /// Update data inside a datapage. If new data can be used in same datapage, just update. Otherwise, copy content to a new ExtendedPage
+        /// Update document using same page position as reference
         /// </summary>
-        public DataBlock Update(CollectionPage col, PageAddress blockAddress, BsonDocument doc)
+        public void Update(CollectionPage col, PageAddress blockAddress, BsonDocument doc)
         {
-            throw new NotImplementedException(); /*
-            // get datapage and mark as dirty
-            var dataPage = _snapshot.GetPage<DataPage>(blockAddress.PageID);
-            var block = dataPage.GetBlock(blockAddress.Index);
-            var extend = dataPage.FreeBytes + block.Data.Length - data.Length <= 0;
+            var bytesLeft = doc.GetBytesCount(true);
 
-            // update document length on data block
-            block.DocumentLength = (int)data.Length;
+            if (bytesLeft > MAX_DOCUMENT_SIZE) throw new LiteException(0, "Document size exceed {0} limit", MAX_DOCUMENT_SIZE);
 
-            // check if need to extend
-            if (extend)
+            DataBlock lastBlock = null;
+            var updateAddress = blockAddress;
+
+            IEnumerable <BufferSlice> source()
             {
-                // clear my block data
-                dataPage.UpdateBlockData(block, new byte[0]);
+                var bytesToCopy = 0;
 
-                // create (or get a existed) extendpage and store data there
-                ExtendPage extendPage;
-
-                if (block.ExtendPageID == uint.MaxValue)
+                while (bytesLeft > 0)
                 {
-                    extendPage = _snapshot.NewPage<ExtendPage>();
-                    block.ExtendPageID = extendPage.PageID;
-                }
-                else
-                {
-                    extendPage = _snapshot.GetPage<ExtendPage>(block.ExtendPageID);
+                    // if last block contains new block sequence, continue updating
+                    if (updateAddress.IsEmpty == false)
+                    {
+                        var dataPage = _snapshot.GetPage<DataPage>(updateAddress.PageID);
+                        var currentBlock = dataPage.GetBlock(updateAddress.Index);
+
+                        // try get full page size content
+                        bytesToCopy = Math.Min(bytesLeft, dataPage.FreeBytes + currentBlock.Buffer.Count);
+
+                        // get current free slot linked list
+                        var slot = BasePage.FreeIndexSlot(dataPage.FreeBytes);
+
+                        var updateBlock = dataPage.UpdateBlock(currentBlock, bytesToCopy);
+
+                        _snapshot.AddOrRemoveFreeList(dataPage, slot);
+
+                        yield return updateBlock.Buffer;
+
+                        lastBlock = updateBlock;
+
+                        // go to next address (if extits)
+                        updateAddress = updateBlock.NextBlock;
+                    }
+                    else
+                    {
+                        bytesToCopy = Math.Min(bytesLeft, MAX_DATA_BYTES_PER_PAGE);
+                        var dataPage = _snapshot.GetFreePage<DataPage>(bytesToCopy + DataBlock.DATA_BLOCK_FIXED_SIZE);
+                        var insertBlock = dataPage.InsertBlock(bytesToCopy, true);
+
+                        if (lastBlock != null)
+                        {
+                            lastBlock.SetNextBlock(insertBlock.Position);
+                        }
+
+                        yield return insertBlock.Buffer;
+
+                        lastBlock = insertBlock;
+                    }
+
+                    bytesLeft -= bytesToCopy;
                 }
 
-                this.StoreExtendData(extendPage, data);
+                // old document was bigger than current, must delete extend blocks
+                if (lastBlock.NextBlock.IsEmpty == false)
+                {
+                    this.Delete(lastBlock.NextBlock);
+                }
             }
-            else
+
+            // consume all source bytes to write BsonDocument direct into PageBuffer
+            // must be fastest as possible
+            using (var w = new BufferWriter(source()))
             {
-                // if no extends, just update data block
-                dataPage.UpdateBlockData(block, data.ToArray());
-
-                // if there was a extended bytes, delete
-                if (block.ExtendPageID != uint.MaxValue)
-                {
-                    _snapshot.DeletePages(block.ExtendPageID);
-                    block.ExtendPageID = uint.MaxValue;
-                }
+                // already bytes count calculate at method start
+                w.WriteDocument(doc, false);
+                w.Consume();
             }
-
-            // set DataPage as dirty
-            _snapshot.SetDirty(dataPage);
-
-            // add/remove dataPage on freelist if has space AND its on/off free list
-            _snapshot.AddOrRemoveToFreeList(dataPage.FreeBytes > DATA_RESERVED_BYTES, dataPage, col, ref col.FreeDataPageID);
-
-            return block;*/
         }
 
         /// <summary>
@@ -152,16 +171,12 @@ namespace LiteDB.Engine
         /// </summary>
         public void Delete(PageAddress blockAddress)
         {
-            var index = 0;
-
             // delete all document blocks
             while(blockAddress != PageAddress.Empty)
             {
                 var page = _snapshot.GetPage<DataPage>(blockAddress.PageID);
                 var block = page.GetBlock(blockAddress.Index);
                 var slot = BasePage.FreeIndexSlot(page.FreeBytes);
-
-                ENSURE(block.DataIndex == index++, "blocks must be in order");
 
                 // delete block inside page
                 page.DeleteBlock(blockAddress.Index);

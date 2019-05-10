@@ -23,47 +23,22 @@ namespace LiteDB.Engine
 
         private readonly WalIndexService _walIndex;
 
-        private HeaderPage _header;
+        private readonly HeaderPage _header;
 
         // immutable settings
         private readonly EngineSettings _settings;
 
         private bool _disposed = false;
 
-        #region TempDB
-
-        private LiteEngine _tempdb = null;
-        private bool _disposeTempdb = false;
-
-        /// <summary>
-        /// Get/Set temporary engine database used to sort data
-        /// </summary>
-        public LiteEngine TempDB
-        {
-            get
-            {
-                if (_tempdb == null)
-                {
-                    _tempdb = new LiteEngine(new EngineSettings { Filename = ":temp:" });
-                }
-
-                return _tempdb;
-            }
-            set
-            {
-                if (_tempdb != null) throw LiteException.TempEngineAlreadyDefined();
-
-                _tempdb = value;
-                _disposeTempdb = false;
-            }
-        }
-
-        #endregion
-
         /// <summary>
         /// Get database initialize settings (used for Debug/UnitTest only)
         /// </summary>
         internal EngineSettings Settings => _settings;
+
+        /// <summary>
+        /// Get internal temporaty disk to be used in sort operation - will create a file "-tmp" when needed (used more than 1 container (800kb) of data to sort)
+        /// </summary>
+        internal TempDisk TempDisk { get; }
 
         #endregion
 
@@ -104,17 +79,10 @@ namespace LiteDB.Engine
                 // initialize disk service (will create database if needed)
                 _disk = new DiskService(settings);
 
-                // read header page
-                using (var reader = _disk.GetReader())
-                {
-                    // read page with no cache ref (has a own PageBuffer) - do not Release() support
-                    var buffer = _disk.ReadFull(FileOrigin.Data).First();
+                // read page with no cache ref (has a own PageBuffer) - do not Release() support
+                var buffer = _disk.ReadFull(FileOrigin.Data).First();
 
-                    //TODO: ler se o banco de dados precisa de UPGRADE aqui, antes mesmo de ler a pagina
-                    //this.Upgrade();
-
-                    _header = new HeaderPage(buffer);
-                }
+                _header = new HeaderPage(buffer);
 
                 // initialize wal-index service
                 _walIndex = new WalIndexService(_disk, _locker);
@@ -124,6 +92,9 @@ namespace LiteDB.Engine
                 {
                     _walIndex.RestoreIndex(ref _header);
                 }
+
+                // initialize temp disk
+                this.TempDisk = new TempDisk(settings.CreateTempFactory(), CONTAINER_SORT_SIZE, settings.UtcDate);
 
                 // register system collections
                 this.InitializeSystemCollections();
@@ -145,7 +116,7 @@ namespace LiteDB.Engine
         /// <summary>
         /// Run checkpoint command to copy log file into data file
         /// </summary>
-        public void Checkpoint() => _walIndex.Checkpoint(_header);
+        public void Checkpoint() => _walIndex.Checkpoint();
 
         /// <summary>
         /// Shutdown process:
@@ -168,13 +139,11 @@ namespace LiteDB.Engine
                 // close all disk connections
                 _disk?.Dispose();
 
+                // delete sort temp file
+                this.TempDisk?.Dispose();
+
                 // dispose lockers
                 _locker?.Dispose();
-
-                if (_disposeTempdb)
-                {
-                    _tempdb?.Dispose(disposing);
-                }
             }
 
             _disposed = true;

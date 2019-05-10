@@ -118,7 +118,6 @@
     <Compile Include="Client\Mapper\EntityMapper.cs" />
     <Compile Include="Client\Mapper\Linq\LinqExpressionVisitor.cs" />
     <Compile Include="Client\Mapper\Linq\ParameterExpressionVisitor.cs" />
-    <Compile Include="Client\Mapper\Linq\Sql.cs" />
     <Compile Include="Client\Mapper\Linq\TypeResolver\BsonValueResolver.cs" />
     <Compile Include="Client\Mapper\Linq\TypeResolver\ConvertResolver.cs" />
     <Compile Include="Client\Mapper\Linq\TypeResolver\DateTimeResolver.cs" />
@@ -128,7 +127,6 @@
     <Compile Include="Client\Mapper\Linq\TypeResolver\MathResolver.cs" />
     <Compile Include="Client\Mapper\Linq\TypeResolver\NumberResolver.cs" />
     <Compile Include="Client\Mapper\Linq\TypeResolver\ObjectIdResolver.cs" />
-    <Compile Include="Client\Mapper\Linq\TypeResolver\SqlResolver.cs" />
     <Compile Include="Client\Mapper\Linq\TypeResolver\StringResolver.cs" />
     <Compile Include="Client\Mapper\MemberMapper.cs" />
     <Compile Include="Client\Mapper\Reflection\Reflection.cs" />
@@ -141,8 +139,6 @@
     <Compile Include="Client\Structures\ConnectionString.cs" />
     <Compile Include="Client\Structures\ConnectionType.cs" />
     <Compile Include="Client\Structures\Query.cs" />
-    <Compile Include="Client\Structures\SharedBsonDataReader.cs" />
-    <Compile Include="Client\Structures\SharedEngine.cs" />
     <Compile Include="Engine\Engine\Analyze.cs" />
     <Compile Include="Engine\Engine\CheckIntegrity.cs" />
     <Compile Include="Engine\Engine\Collection.cs" />
@@ -152,11 +148,9 @@
     <Compile Include="Engine\Engine\Sequence.cs" />
     <Compile Include="Engine\Engine\Insert.cs" />
     <Compile Include="Engine\Engine\Query.cs" />
-    <Compile Include="Engine\Engine\Shrink.cs" />
     <Compile Include="Engine\Engine\SystemCollections.cs" />
     <Compile Include="Engine\Engine\Transaction.cs" />
     <Compile Include="Engine\Engine\Update.cs" />
-    <Compile Include="Engine\Engine\Upgrade.cs" />
     <Compile Include="Engine\Engine\Upsert.cs" />
     <Compile Include="Engine\Engine\Vaccum.cs" />
     <Compile Include="Engine\Services\CollectionService.cs" />

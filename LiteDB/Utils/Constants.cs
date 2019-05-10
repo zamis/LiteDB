@@ -2,10 +2,11 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 #if DEBUG
 [assembly: InternalsVisibleTo("LiteDB.Tests")]
-#endif 
+#endif
 
 namespace LiteDB
 {
@@ -70,6 +71,16 @@ namespace LiteDB
         public const int MEMORY_SEGMENT_SIZE = 1000; // 8Mb per extend
 
         /// <summary>
+        /// Define how many documents will be keep in memory until clear cache and remove support to orderby/groupby
+        /// </summary>
+        public const int VIRTUAL_INDEX_MAX_CACHE = 2000;
+
+        /// <summary>
+        /// Define how many bytes each merge sort container will be created
+        /// </summary>
+        public const int CONTAINER_SORT_SIZE = 100 * PAGE_SIZE;
+
+        /// <summary>
         /// Database header parameter: USERVERSION
         /// </summary>
         public const string DB_PARAM_USERVERSION = "USERVERSION";
@@ -81,7 +92,9 @@ namespace LiteDB
         [Conditional("DEBUG")]
         public static void LOG(string message, string category)
         {
-            Debug.WriteLine(message, category);
+            var threadID = Thread.CurrentThread.ManagedThreadId;
+
+            Debug.WriteLine(message, threadID + "|" + category);
         }
 
         /// <summary>

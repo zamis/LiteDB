@@ -12,14 +12,14 @@ namespace LiteDB.Engine
     {
         private readonly LiteEngine _engine;
         private readonly string _collection;
-        private readonly QueryDefinition _queryDefinition;
+        private readonly Query _query;
         private readonly IEnumerable<BsonDocument> _source;
 
-        public QueryExecutor(LiteEngine engine, string collection, QueryDefinition query, IEnumerable<BsonDocument> source)
+        public QueryExecutor(LiteEngine engine, string collection, Query query, IEnumerable<BsonDocument> source)
         {
             _engine = engine;
             _collection = collection;
-            _queryDefinition = query;
+            _query = query;
 
             // source will be != null when query will run over external data source, like system collections or files (not user collection)
             _source = source;
@@ -27,13 +27,13 @@ namespace LiteDB.Engine
 
         public BsonDataReader ExecuteQuery()
         {
-            if (_queryDefinition.Into == null)
+            if (_query.Into == null)
             {
-                return this.ExecuteQuery(_queryDefinition.ExplainPlan);
+                return this.ExecuteQuery(_query.ExplainPlan);
             }
             else
             {
-                return this.ExecuteQueryInto(_queryDefinition.Into, _queryDefinition.IntoAutoId);
+                return this.ExecuteQueryInto(_query.Into, _query.IntoAutoId);
             }
         }
 
@@ -60,10 +60,7 @@ namespace LiteDB.Engine
 
             IEnumerable<BsonDocument> RunQuery()
             {
-                var snapshot = transaction.CreateSnapshot(_queryDefinition.ForUpdate ? LockMode.Write : LockMode.Read, _collection, false);
-
-                var data = new DataService(snapshot);
-                var indexer = new IndexService(snapshot);
+                var snapshot = transaction.CreateSnapshot(_query.ForUpdate ? LockMode.Write : LockMode.Read, _collection, false);
 
                 // no collection, no documents
                 if (snapshot.CollectionPage == null && _source == null)
@@ -76,11 +73,8 @@ namespace LiteDB.Engine
                     yield break;
                 }
 
-                // check if query definition are ok
-                _queryDefinition.Validate();
-
                 // execute optimization before run query (will fill missing _query properties instance)
-                var optimizer = new QueryOptimization(snapshot, _queryDefinition, _source);
+                var optimizer = new QueryOptimization(snapshot, _query, _source);
 
                 var queryPlan = optimizer.ProcessQuery();
 
@@ -97,26 +91,11 @@ namespace LiteDB.Engine
                     yield break;
                 }
 
-                // define document loader
-                if (!(queryPlan.Index is IDocumentLoader loader)) // use index as document loader (virtual collection)
-                {
-                    if (queryPlan.IsIndexKeyOnly)
-                    {
-                        loader = new IndexKeyLoader(indexer, queryPlan.Fields.Single());
-                    }
-                    else
-                    {
-                        loader = new DocumentLoader(data, _engine.Settings.UtcDate, queryPlan.Fields);
-                    }
-                }
-
                 // get node list from query - distinct by dataBlock (avoid duplicate)
-                var nodes = queryPlan.Index.Run(snapshot.CollectionPage, indexer);
+                var nodes = queryPlan.Index.Run(snapshot.CollectionPage, new IndexService(snapshot));
 
                 // get current query pipe: normal or groupby pipe
-                using (var pipe = queryPlan.GroupBy != null ?
-                    new GroupByPipe(_engine, transaction, loader) :
-                    (BasePipe)new QueryPipe(_engine, transaction, loader))
+                using (var pipe = queryPlan.GetPipe(transaction, snapshot, _engine.TempDisk, _engine.Settings.UtcDate))
                 {
                     // commit transaction before close pipe
                     pipe.Disposing += (s, e) =>

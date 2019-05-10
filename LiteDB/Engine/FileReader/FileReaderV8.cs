@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using static LiteDB.Constants;
 
 namespace LiteDB.Engine
 {
@@ -14,15 +15,13 @@ namespace LiteDB.Engine
     {
         private LiteEngine _engine;
 
-        public DateTime CreationTime { get; set; } = DateTime.Now;
         public int UserVersion { get; set; }
 
-        public FileReaderV8(LiteEngine engine, HeaderPage header)
+        public FileReaderV8(LiteEngine engine)
         {
             _engine = engine;
 
-            this.CreationTime = header.CreationTime;
-            this.UserVersion = header.UserVersion;
+            this.UserVersion = engine.DbParam(DB_PARAM_USERVERSION);
         }
 
         /// <summary>
@@ -38,7 +37,7 @@ namespace LiteDB.Engine
         /// </summary>
         public IEnumerable<IndexInfo> GetIndexes()
         {
-            using(var reader = _engine.Query("$indexes", new QueryDefinition()))
+            using(var reader = _engine.Query("$indexes", new Query()))
             {
                 while(reader.Read())
                 {
@@ -59,7 +58,7 @@ namespace LiteDB.Engine
         /// </summary>
         public IEnumerable<BsonDocument> GetDocuments(IndexInfo index)
         {
-            using (var reader = _engine.Query(index.Collection, new QueryDefinition()))
+            using (var reader = _engine.Query(index.Collection, new Query()))
             {
                 while(reader.Read())
                 {

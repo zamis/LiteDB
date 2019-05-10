@@ -5,7 +5,6 @@ using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using static LiteDB.ZipExtensions;
 
 namespace LiteDB
 {
@@ -69,7 +68,7 @@ namespace LiteDB
             {
                 return value.AsInt32;
             }
-            else
+            else if(value.IsString)
             {
                 if (Int32.TryParse(value.AsString, out var val))
                 {
@@ -89,7 +88,7 @@ namespace LiteDB
             {
                 return value.AsInt64;
             }
-            else
+            else if(value.IsString)
             {
                 if (Int64.TryParse(value.AsString, out var val))
                 {
@@ -109,7 +108,7 @@ namespace LiteDB
             {
                 return value.AsDouble;
             }
-            else
+            else if(value.IsString)
             {
                 if (Double.TryParse(value.AsString, NumberStyles.Any, CultureInfo.InvariantCulture.NumberFormat, out var val))
                 {
@@ -125,14 +124,14 @@ namespace LiteDB
         /// </summary>
         public static BsonValue DOUBLE(BsonValue value, BsonValue culture)
         {
-            var c = CultureInfo.GetCultureInfo(culture.AsString ?? "en-US");
-
             if (value.IsNumber)
             {
                 return value.AsDouble;
             }
-            else
+            else if(value.IsString && culture.IsString)
             {
+                var c = CultureInfo.GetCultureInfo(culture.AsString); // en-US
+
                 if (Double.TryParse(value.AsString, NumberStyles.Any, c.NumberFormat, out var val))
                 {
                     return val;
@@ -151,7 +150,7 @@ namespace LiteDB
             {
                 return value.AsDecimal;
             }
-            else
+            else if(value.IsString)
             {
                 if (Decimal.TryParse(value.AsString, NumberStyles.Any, CultureInfo.InvariantCulture.NumberFormat, out var val))
                 {
@@ -167,14 +166,14 @@ namespace LiteDB
         /// </summary>
         public static BsonValue DECIMAL(BsonValue value, BsonValue culture)
         {
-            var c = CultureInfo.GetCultureInfo(culture.AsString ?? "en-US");
-
             if (value.IsNumber)
             {
                 return value.AsDecimal;
             }
-            else
+            else if(value.IsString && culture.IsString)
             {
+                var c = CultureInfo.GetCultureInfo(culture.AsString); // en-US
+
                 if (Decimal.TryParse(value.AsString, NumberStyles.Any, c.NumberFormat, out var val))
                 {
                     return val;
@@ -185,11 +184,11 @@ namespace LiteDB
         }
 
         /// <summary>
-        /// Convert values into STRING
+        /// Convert value into STRING
         /// </summary>
         public static BsonValue STRING(BsonValue value)
         {
-            return value.AsString;
+            return value.ToString();
         }
 
         // ==> there is no convert to BsonDocument, must use { .. } syntax 
@@ -240,7 +239,7 @@ namespace LiteDB
             {
                 return value.AsObjectId;
             }
-            else
+            else if(value.IsString)
             {
                 ObjectId val = null;
                 var isObjectId = false;
@@ -269,7 +268,7 @@ namespace LiteDB
             {
                 return value.AsGuid;
             }
-            else
+            else if(value.IsString)
             {
                 var val = Guid.Empty;
                 var isGuid = false;
@@ -327,7 +326,7 @@ namespace LiteDB
             {
                 return value.AsDateTime;
             }
-            else
+            else if(value.IsString)
             {
                 if (DateTime.TryParse(value.AsString, CultureInfo.InvariantCulture.DateTimeFormat, DateTimeStyles.None, out var val))
                 {
@@ -343,14 +342,14 @@ namespace LiteDB
         /// </summary>
         public static BsonValue DATETIME(BsonValue value, BsonValue culture)
         {
-            var c = CultureInfo.GetCultureInfo(culture.AsString ?? "en-US");
-
             if (value.IsDateTime)
             {
                 return value.AsDateTime;
             }
-            else
+            else if(value.IsString && culture.IsString)
             {
+                var c = CultureInfo.GetCultureInfo(culture.AsString); // en-US
+
                 if (DateTime.TryParse(value.AsString, c.DateTimeFormat, DateTimeStyles.None, out var val))
                 {
                     return val;
@@ -369,7 +368,7 @@ namespace LiteDB
             {
                 return value.AsDateTime;
             }
-            else
+            else if(value.IsString)
             {
                 if (DateTime.TryParse(value.AsString, CultureInfo.InvariantCulture.DateTimeFormat, DateTimeStyles.AssumeUniversal, out var val))
                 {
@@ -385,14 +384,14 @@ namespace LiteDB
         /// </summary>
         public static BsonValue DATETIME_UTC(BsonValue value, BsonValue culture)
         {
-            var c = CultureInfo.GetCultureInfo(culture.AsString ?? "en-US");
-
             if (value.IsDateTime)
             {
                 return value.AsDateTime;
             }
-            else
+            else if(value.IsString && culture.IsString)
             {
+                var c = CultureInfo.GetCultureInfo(culture.AsString); // en-US
+
                 if (DateTime.TryParse(value.AsString, c.DateTimeFormat, DateTimeStyles.AssumeUniversal, out var val))
                 {
                     return val;

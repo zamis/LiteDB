@@ -9,78 +9,57 @@ namespace LiteDB.Engine
     /// </summary>
     internal class GroupByPipe : BasePipe
     {
-        public GroupByPipe(LiteEngine engine, TransactionService transaction, IDocumentLoader loader)
-            : base(engine, transaction, loader)
+        public GroupByPipe(TransactionService transaction, IDocumentLookup loader, TempDisk tempDisk, bool utcDate)
+            : base(transaction, loader, tempDisk, utcDate)
         {
         }
 
         /// <summary>
         /// GroupBy Pipe Order
         /// - LoadDocument
-        /// - IncludeBefore
         /// - Filter
         /// - OrderBy (to GroupBy)
+        /// - GroupBy
+        /// - HavingSelectGroupBy
         /// - OffSet
         /// - Limit
-        /// - IncludeAfter
-        /// - GroupBy
-        /// - Having
-        /// - SelectGroupBy
         /// </summary>
         public override IEnumerable<BsonDocument> Pipe(IEnumerable<IndexNode> nodes, QueryPlan query)
         {
             // starts pipe loading document
             var source = this.LoadDocument(nodes);
 
-            // do includes in result before filter
-            foreach (var path in query.IncludeBefore)
-            {
-                source = this.Include(source, path);
-            }
-
-            // filter results according expressions
+            // filter results according filter expressions
             foreach (var expr in query.Filters)
             {
                 source = this.Filter(source, expr);
             }
 
-            // pipe: orderBy used in GroupBy
+            // run orderBy used in GroupBy (if not already ordered by index)
             if (query.OrderBy != null)
             {
                 source = this.OrderBy(source, query.OrderBy.Expression, query.OrderBy.Order, 0, int.MaxValue);
-            }
-            else
-            {
-                // pipe: apply offset (no orderby)
-                if (query.Offset > 0) source = source.Skip(query.Offset);
-
-                // pipe: apply limit (no orderby)
-                if (query.Limit < int.MaxValue) source = source.Take(query.Limit);
-            }
-
-            // do includes in result after filter
-            foreach (var path in query.IncludeAfter)
-            {
-                source = this.Include(source, path);
             }
 
             // apply groupby
             var groups = this.GroupBy(source, query.GroupBy);
 
-            // if contains having clause, run after select group by
-            if (query.GroupBy.Having != null)
-            {
-                groups = this.Having(groups, query.GroupBy.Having);
-            }
+            // apply group filter and transform result
+            var result = this.SelectGroupBy(groups, query.GroupBy);
 
-            // now, get only first document from each group
-            return this.SelectGroupBy(groups, query.GroupBy.Select);
+            // apply offset
+            if (query.Offset > 0) result = result.Skip(query.Offset);
+
+            // apply limit
+            if (query.Limit < int.MaxValue) result = result.Take(query.Limit);
+
+            return result;
         }
 
         /// <summary>
-        /// Apply groupBy expression and transform results
+        /// GROUP BY: Apply groupBy expression and aggregate results in DocumentGroup
         /// </summary>
-        private IEnumerable<IEnumerable<BsonDocument>> GroupBy(IEnumerable<BsonDocument> source, GroupBy groupBy)
+        private IEnumerable<DocumentGroup> GroupBy(IEnumerable<BsonDocument> source, GroupBy groupBy)
         {
             using (var enumerator = source.GetEnumerator())
             {
@@ -88,49 +67,71 @@ namespace LiteDB.Engine
 
                 while (done.Running)
                 {
-                    var group = YieldDocuments(enumerator, groupBy, done);
+                    var key = groupBy.Expression.ExecuteScalar(enumerator.Current);
 
-                    yield return new DocumentEnumerable(group);
-                }
-            }
-        }
+                    groupBy.Select.Parameters["key"] = key;
 
-        private IEnumerable<BsonDocument> YieldDocuments(IEnumerator<BsonDocument> source, GroupBy groupBy, Done done)
-        {
-            var current = groupBy.Expression.ExecuteScalar(source.Current);
+                    var group = YieldDocuments(key, enumerator, groupBy, done);
 
-            groupBy.Select.Parameters["key"] = current;
-
-            yield return source.Current;
-
-            while (done.Running = source.MoveNext())
-            {
-                var key = groupBy.Expression.ExecuteScalar(source.Current);
-
-                groupBy.Select.Parameters["key"] = current;
-
-                if (key == current)
-                {
-                    yield return source.Current;
-                }
-                else
-                {
-                    break;
+                    yield return new DocumentGroup(key, enumerator.Current, group, _lookup);
                 }
             }
         }
 
         /// <summary>
-        /// Transform groups of documents into single documents enumerable and apply select expression into group or return first document from each group
+        /// YieldDocuments will run over all key-ordered source and returns groups of source
         /// </summary>
-        private IEnumerable<BsonDocument> SelectGroupBy(IEnumerable<IEnumerable<BsonDocument>> groups, BsonExpression select)
+        private IEnumerable<BsonDocument> YieldDocuments(BsonValue key, IEnumerator<BsonDocument> enumerator, GroupBy groupBy, Done done)
         {
-            var defaultName = select.DefaultFieldName();
+            yield return enumerator.Current;
 
-            foreach (DocumentEnumerable group in groups)
+            while (done.Running = enumerator.MoveNext())
+            {
+                var current = groupBy.Expression.ExecuteScalar(enumerator.Current);
+
+                if (key == current)
+                {
+                    // yield return document in same key (group)
+                    yield return enumerator.Current;
+                }
+                else
+                {
+                    groupBy.Select.Parameters["key"] = current;
+
+                    // stop current sequence
+                    yield break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Run Select expression over a group source - each group will return a single value
+        /// If contains Having expression, test if result = true before run Select
+        /// </summary>
+        private IEnumerable<BsonDocument> SelectGroupBy(IEnumerable<DocumentGroup> groups, GroupBy groupBy)
+        {
+            var defaultName = groupBy.Select.DefaultFieldName();
+
+            foreach (var group in groups)
             {
                 // transfom group result if contains select expression
-                var value = select.ExecuteScalar(group);
+                BsonValue value;
+
+                try
+                {
+                    if (groupBy.Having != null)
+                    {
+                        var filter = groupBy.Having.ExecuteScalar(group, group.Root, group.Root);
+
+                        if (!filter.IsBoolean || !filter.AsBoolean) continue;
+                    }
+
+                    value = groupBy.Select.ExecuteScalar(group, group.Root, group.Root);
+                }
+                finally
+                {
+                    group.Dispose();
+                }
 
                 if (value.IsDocument)
                 {
@@ -140,32 +141,7 @@ namespace LiteDB.Engine
                 {
                     yield return new BsonDocument { [defaultName] = value };
                 }
-
-                group.Dispose();
             }
-        }
-
-        /// <summary>
-        /// Pipe: Filter source using having bool expression to skip or include on final resultset
-        /// </summary>
-        protected IEnumerable<IEnumerable<BsonDocument>> Having(IEnumerable<IEnumerable<BsonDocument>> groups, BsonExpression having)
-        {
-            foreach(var source in groups)
-            {
-                var result = having.ExecuteScalar(source);
-
-                if (result.IsBoolean && result.AsBoolean)
-                {
-                    yield return source;
-                }
-            }
-        }
-        /// <summary>
-        /// Bool inside a class to be used as "ref" parameter on ienumerable
-        /// </summary>
-        private class Done
-        {
-            public bool Running = false;
         }
     }
 }

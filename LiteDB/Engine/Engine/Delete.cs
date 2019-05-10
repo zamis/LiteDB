@@ -34,7 +34,7 @@ namespace LiteDB.Engine
                     if (pkNode == null) continue;
 
                     // delete all nodes (start in pk node)
-                    indexer.Delete(pkNode.Position);
+                    indexer.DeleteAll(pkNode.Position);
 
                     // remove object data
                     data.Delete(pkNode.DataBlock);
@@ -72,7 +72,7 @@ namespace LiteDB.Engine
                 {
                     IEnumerable<BsonValue> getIds()
                     {
-                        var query = new QueryDefinition { Select = "_id" };
+                        var query = new Query { Select = "_id" };
 
                         query.Where.Add(predicate);
 

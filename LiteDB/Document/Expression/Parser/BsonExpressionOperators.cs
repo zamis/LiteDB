@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using static LiteDB.ZipExtensions;
 using static LiteDB.Constants;
 
 namespace LiteDB
@@ -18,10 +17,15 @@ namespace LiteDB
         /// </summary>
         public static BsonValue ADD(BsonValue left, BsonValue right)
         {
-            // if any side are string, concat
-            if (left.IsString || right.IsString)
+            // if both sides are string, concat
+            if (left.IsString && right.IsString)
             {
-                return left.RawValue?.ToString() + right.RawValue?.ToString();
+                return left.AsString + right.AsString;
+            }
+            // if any sides are string, concat casting both to string
+            else if (left.IsString || right.IsString)
+            {
+                return left.ToString() + right.ToString();
             }
             // if any side are DateTime and another is number, add days in date
             else if (left.IsDateTime && right.IsNumber)
@@ -153,7 +157,7 @@ namespace LiteDB
         /// </summary>
         public static BsonValue LIKE(BsonValue left, BsonValue right)
         {
-            if (left.IsString && left.IsString)
+            if (left.IsString && right.IsString)
             {
                 return left.AsString.SqlLike(right.AsString);
             }
@@ -173,14 +177,14 @@ namespace LiteDB
         {
             if (!right.IsArray) throw new InvalidOperationException("BETWEEN expression need an array with 2 values");
 
-            var arr = left.AsArray;
+            var arr = right.AsArray;
 
             if (arr.Count != 2) throw new InvalidOperationException("BETWEEN expression need an array with 2 values");
 
             var start = arr[0];
             var end = arr[1];
 
-            return left >= start && right <= end;
+            return left >= start && left <= end;
         }
 
         public static BsonValue BETWEEN_ANY(IEnumerable<BsonValue> left, BsonValue right) => left.Any(x => BETWEEN(x, right));
@@ -240,9 +244,6 @@ namespace LiteDB
 
             if (doc.TryGetValue(name, out BsonValue item))
             {
-                // fill destroy action to remove value from root
-                item.Destroy = () => doc.Remove(name);
-
                 return item;
             }
             else
@@ -266,15 +267,16 @@ namespace LiteDB
 
                 if (doc.TryGetValue(name, out BsonValue item))
                 {
-                    // fill destroy action to remove value from parent document
-                    item.Destroy = () => doc.Remove(name);
-
                     return item;
                 }
             }
 
             return BsonValue.Null;
         }
+
+        #endregion
+
+        #region Array Index/Filter
 
         /// <summary>
         /// Returns a single value from array according index or expression parameter
@@ -303,12 +305,7 @@ namespace LiteDB
 
             if (arr.Count > idx)
             {
-                var item = arr[idx];
-
-                // fill destroy action to remove value from parent array
-                item.Destroy = () => arr.Remove(item);
-
-                return item;
+                return arr[idx];
             }
 
             return BsonValue.Null;
@@ -323,8 +320,16 @@ namespace LiteDB
 
             var arr = value.AsArray;
 
+            // [*] - index are all values
+            if (index == int.MaxValue)
+            {
+                foreach (var item in arr)
+                {
+                    yield return item;
+                }
+            }
             // [<expr>] - index are an expression
-            if (filterExpr.Type != BsonExpressionType.Empty && filterExpr.Type != BsonExpressionType.Parameter)
+            else
             {
                 // update parameters in expression
                 parameters.CopyTo(filterExpr.Parameters);
@@ -336,22 +341,8 @@ namespace LiteDB
 
                     if (c.IsBoolean && c.AsBoolean == true)
                     {
-                        // fill destroy action to remove value from parent array
-                        item.Destroy = () => arr.Remove(item);
-
                         yield return item;
                     }
-                }
-            }
-            // [*] - index are all values
-            else if (index == int.MaxValue)
-            {
-                foreach (var item in arr)
-                {
-                    // fill destroy action to remove value from parent array
-                    item.Destroy = () => arr.Remove(item);
-
-                    yield return item;
                 }
             }
         }

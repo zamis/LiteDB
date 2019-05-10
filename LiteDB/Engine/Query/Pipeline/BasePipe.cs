@@ -12,15 +12,17 @@ namespace LiteDB.Engine
     {
         public event EventHandler Disposing = null;
 
-        protected readonly LiteEngine _engine;
         protected readonly TransactionService _transaction;
-        protected readonly IDocumentLoader _loader;
+        protected readonly IDocumentLookup _lookup;
+        protected readonly TempDisk _tempDisk;
+        protected readonly bool _utcDate;
 
-        public BasePipe(LiteEngine engine, TransactionService transaction, IDocumentLoader loader)
+        public BasePipe(TransactionService transaction, IDocumentLookup lookup, TempDisk tempDisk, bool utcDate)
         {
-            _engine = engine;
             _transaction = transaction;
-            _loader = loader;
+            _lookup = lookup;
+            _tempDisk = tempDisk;
+            _utcDate = utcDate;
         }
 
         /// <summary>
@@ -33,7 +35,7 @@ namespace LiteDB.Engine
         {
             foreach (var node in nodes)
             {
-                yield return _loader.Load(node);
+                yield return _lookup.Load(node);
 
                 // check if transaction all full of pages to clear before continue
                 _transaction.Safepoint();
@@ -41,7 +43,7 @@ namespace LiteDB.Engine
         }
 
         /// <summary>
-        /// Pipe: Do include in result document according path expression
+        /// INCLUDE: Do include in result document according path expression - Works only with DocumentLookup
         /// </summary>
         protected IEnumerable<BsonDocument> Include(IEnumerable<BsonDocument> source, BsonExpression path)
         {
@@ -51,7 +53,7 @@ namespace LiteDB.Engine
             IndexService indexer = null;
             DataService data = null;
             CollectionIndex index = null;
-            IDocumentLoader loader = null;
+            IDocumentLookup lookup = null;
 
             foreach (var doc in source)
             {
@@ -77,29 +79,20 @@ namespace LiteDB.Engine
                         indexer = new IndexService(snapshot);
                         data = new DataService(snapshot);
 
-                        loader = new DocumentLoader(data, _engine.Settings.UtcDate, null);
+                        lookup = new DatafileLookup(data, _utcDate, null);
 
                         index = snapshot.CollectionPage?.PK;
                     }
 
-                    // if there is no ref collection
-                    if (index == null)
-                    {
-                        value.Destroy();
-                    }
-                    else
+                    // fill only if index and ref node exists
+                    if (index != null)
                     {
                         var node = indexer.Find(index, refId, false, Query.Ascending);
 
-                        // if _id was not found in $ref collection, remove value
-                        if (node == null)
-                        {
-                            value.Destroy();
-                        }
-                        else
+                        if (node != null)
                         {
                             // load document based on dataBlock position
-                            var refDoc = loader.Load(node);
+                            var refDoc = lookup.Load(node);
 
                             value.Remove("$id");
                             value.Remove("$ref");
@@ -114,7 +107,7 @@ namespace LiteDB.Engine
         }
 
         /// <summary>
-        /// Pipe: Filter document according expression. Expression must be an Bool result
+        /// WHERE: Filter document according expression. Expression must be an Bool result
         /// </summary>
         protected IEnumerable<BsonDocument> Filter(IEnumerable<BsonDocument> source, BsonExpression expr)
         {
@@ -131,27 +124,29 @@ namespace LiteDB.Engine
         }
 
         /// <summary>
-        /// Pipe: OrderBy documents according orderby expression/order
+        /// ORDER BY: Sort documents according orderby expression and order asc/desc
         /// </summary>
         protected IEnumerable<BsonDocument> OrderBy(IEnumerable<BsonDocument> source, BsonExpression expr, int order, int offset, int limit)
         {
-            //TODO: temp in-memory orderby implementation
-            var query = source
-                .Select(x => new { order = expr.Execute(x).First(), doc = x });
+            var keyValues = source
+                .Select(x => new KeyValuePair<BsonValue, PageAddress>(expr.ExecuteScalar(x), x.RawId));
 
-            if (order == Query.Ascending)
+            using (var sorter = new SortService(_tempDisk, order))
             {
-                query = query.OrderBy(x => x.order);
-            }
-            else if(order == Query.Descending)
-            {
-                query = query.OrderByDescending(x => x.order);
+                sorter.Insert(keyValues);
+
+                LOG($"sort {sorter.Count} keys in {sorter.Containers.Count} containers", "SORT");
+
+                var result = sorter.Sort().Skip(offset).Take(limit);
+
+                foreach (var keyValue in result)
+                {
+                    var doc = _lookup.Load(keyValue.Value);
+
+                    yield return doc;
+                }
             }
 
-            return query
-                .Select(x => x.doc)
-                .Skip(offset)
-                .Take(limit);
         }
 
         public void Dispose()

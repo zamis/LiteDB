@@ -302,7 +302,7 @@ namespace LiteDB.Engine
 
                 // write plain or encrypted data into stream
                 if (_aes != null)
-                    {
+                {
                     _aes.Encrypt(page, stream);
                 }
                 else

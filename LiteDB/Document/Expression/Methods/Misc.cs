@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using static LiteDB.ZipExtensions;
 
 namespace LiteDB
 {
@@ -37,23 +36,33 @@ namespace LiteDB
         }
 
         /// <summary>
-        /// Extend source document with other document. Copy all field from extend to source. Source document will be modified.
+        /// Create a new document and copy all properties from source document. Then copy properties (overritting if need) extend document
+        /// Always returns a new document!
         /// EXTEND($, {a: 2}) = {_id:1, a: 2}
         /// </summary>
         public static BsonValue EXTEND(BsonValue source, BsonValue extend)
         {
             if (source.IsDocument && extend.IsDocument)
             {
-                extend.AsDocument.CopyTo(source.AsDocument);
+                // make a copy of source document
+                var newDoc = new BsonDocument();
 
-                return source.AsDocument;
+                source.AsDocument.CopyTo(newDoc);
+                extend.AsDocument.CopyTo(newDoc);
+
+                // copy rawId from source
+                newDoc.RawId = source.AsDocument.RawId;
+
+                return newDoc;
             }
+            else if (source.IsDocument) return source;
+            else if (extend.IsDocument) return extend;
 
-            return BsonValue.Null;
+            return new BsonDocument();
         }
 
         /// <summary>
-        /// Convert an array into IEnuemrable of values.
+        /// Convert an array into IEnuemrable of values - If not array, returns as single yield value
         /// ITEMS([1, 2, null]) = 1, 2, null
         /// </summary>
         public static IEnumerable<BsonValue> ITEMS(BsonValue array)
@@ -65,6 +74,18 @@ namespace LiteDB
                     yield return value;
                 }
             }
+            else
+            {
+                yield return array;
+            }
+        }
+
+        /// <summary>
+        /// Concatenates 2 sequences into a new single sequence
+        /// </summary>
+        public static IEnumerable<BsonValue> CONCAT(IEnumerable<BsonValue> first, IEnumerable<BsonValue> second)
+        {
+            return first.Concat(second);
         }
 
         /// <summary>
@@ -76,7 +97,7 @@ namespace LiteDB
             {
                 var doc = document.AsDocument;
 
-                return doc.RawId.IsEmpty ? null : doc.RawId.ToString();
+                return doc.RawId.IsEmpty ? BsonValue.Null : new BsonValue(doc.RawId.ToString());
             }
 
             return BsonValue.Null;
@@ -126,6 +147,7 @@ namespace LiteDB
             else if (value.IsBinary) return value.AsBinary.Length;
             else if (value.IsArray) return value.AsArray.Count;
             else if (value.IsDocument) return value.AsDocument.Keys.Count;
+            else if (value.IsNull) return 0;
 
             return BsonValue.Null;
         }

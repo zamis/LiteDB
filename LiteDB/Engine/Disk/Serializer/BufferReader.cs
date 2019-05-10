@@ -20,8 +20,6 @@ namespace LiteDB.Engine
 
         private bool _isEOF = false;
 
-        private byte[] _tempBuffer = new byte[16]; // re-usable array
-
         /// <summary>
         /// Current global cursor position
         /// </summary>
@@ -266,9 +264,13 @@ namespace LiteDB.Engine
             }
             else
             {
-                this.Read(_tempBuffer, 0, size);
+                var buffer = BufferPool.Rent(size);
 
-                value = convert(_tempBuffer, 0);
+                this.Read(buffer, 0, size);
+
+                value = convert(buffer, 0);
+
+                BufferPool.Return(buffer);
             }
 
             return value;
@@ -299,7 +301,7 @@ namespace LiteDB.Engine
         {
             var date = new DateTime(this.ReadInt64(), DateTimeKind.Utc);
 
-            return _utcDate ? date.ToLocal() : date;
+            return _utcDate ? date.ToLocalTime() : date;
         }
 
         /// <summary>
@@ -339,9 +341,13 @@ namespace LiteDB.Engine
             }
             else
             {
-                this.Read(_tempBuffer, 0, 12);
+                var buffer = BufferPool.Rent(12);
 
-                value = new ObjectId(_tempBuffer, 0);
+                this.Read(buffer, 0, 12);
+
+                value = new ObjectId(buffer, 0);
+
+                BufferPool.Return(buffer);
             }
 
             return value;
@@ -385,6 +391,43 @@ namespace LiteDB.Engine
             return buffer;
         }
 
+        /// <summary>
+        /// Read single IndexKey (BsonValue) from buffer. Use +1 length only for string/binary
+        /// </summary>
+        public BsonValue ReadIndexKey()
+        {
+            var type = (BsonType)this.ReadByte();
+
+            switch (type)
+            {
+                case BsonType.Null: return BsonValue.Null;
+
+                case BsonType.Int32: return this.ReadInt32();
+                case BsonType.Int64: return this.ReadInt64();
+                case BsonType.Double: return this.ReadDouble();
+                case BsonType.Decimal: return this.ReadDecimal();
+                
+                // Use +1 byte only for length
+                case BsonType.String: return this.ReadString(this.ReadByte());
+
+                case BsonType.Document: return this.ReadDocument(null);
+                case BsonType.Array: return this.ReadArray();
+
+                // Use +1 byte only for length
+                case BsonType.Binary: return this.ReadBytes(this.ReadByte());
+                case BsonType.ObjectId: return this.ReadObjectId();
+                case BsonType.Guid: return this.ReadGuid();
+
+                case BsonType.Boolean: return this.ReadBoolean();
+                case BsonType.DateTime: return this.ReadDateTime();
+
+                case BsonType.MinValue: return BsonValue.MinValue;
+                case BsonType.MaxValue: return BsonValue.MaxValue;
+
+                default: throw new NotImplementedException();
+            }
+        }
+
         #endregion
 
         #region BsonDocument as SPECS
@@ -407,7 +450,7 @@ namespace LiteDB.Engine
                 // null value means are not selected field
                 if (value != null)
                 {
-                    doc.RawValue[name] = value;
+                    doc[name] = value;
 
                     // remove from remaining fields
                     remaining?.Remove(name);

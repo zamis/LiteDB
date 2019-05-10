@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using static LiteDB.ZipExtensions;
 
 namespace LiteDB
 {
@@ -37,7 +36,7 @@ namespace LiteDB
         /// </summary>
         public static BsonValue DAY(BsonValue value)
         {
-            if (value.IsDateTime) return value.AsDateTime.Date;
+            if (value.IsDateTime) return value.AsDateTime.Day;
 
             return BsonValue.Null;
 

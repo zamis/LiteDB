@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using static LiteDB.ZipExtensions;
 
 namespace LiteDB
 {
@@ -176,6 +175,22 @@ namespace LiteDB
         }
 
         /// <summary>
+        /// Slit value string based on separator 
+        /// </summary>
+        public static IEnumerable<BsonValue> SPLIT(BsonValue value, BsonValue separator)
+        {
+            if (value.IsString && separator.IsString)
+            {
+                var values = value.AsString.Split(new string[] { separator.AsString }, StringSplitOptions.RemoveEmptyEntries);
+
+                foreach(var str in values)
+                {
+                    yield return str;
+                }
+            }
+        }
+
+        /// <summary>
         /// Return format value string using format definition (same as String.Format("{0:~}", values)).
         /// </summary>
         public static BsonValue FORMAT(BsonValue value, BsonValue format)
@@ -205,7 +220,7 @@ namespace LiteDB
             {
                 return string.Join(
                     separator.AsString,
-                    values.Select(x => x.AsString).ToArray()
+                    values.Select(x => x.ToString()).ToArray()
                 );
             }
 
