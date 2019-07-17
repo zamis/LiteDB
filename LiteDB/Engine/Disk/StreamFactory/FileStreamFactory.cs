@@ -14,11 +14,13 @@ namespace LiteDB.Engine
     internal class FileStreamFactory : IStreamFactory
     {
         private readonly string _filename;
+        private readonly string _password;
         private readonly bool _readonly;
 
-        public FileStreamFactory(string filename, bool readOnly)
+        public FileStreamFactory(string filename, string password, bool readOnly)
         {
             _filename = filename;
+            _password = password;
             _readonly = readOnly;
         }
 
@@ -34,12 +36,23 @@ namespace LiteDB.Engine
         {
             var write = canWrite && (_readonly == false);
 
-            return new FileStream(_filename,
+            var stream = new FileStream(_filename,
                 _readonly ? System.IO.FileMode.Open : System.IO.FileMode.OpenOrCreate,
                 write ? FileAccess.ReadWrite : FileAccess.Read,
                 write ? FileShare.Read : FileShare.ReadWrite,
                 PAGE_SIZE,
                 sequencial ? FileOptions.SequentialScan : FileOptions.RandomAccess);
+
+            return _password == null ? (Stream)stream : new AesStream(_password, stream);
+        }
+
+        /// <summary>
+        /// Get file length using FileInfo
+        /// </summary>
+        public long GetLength()
+        {
+            // getting size from OS - if encrypted must remove salt first page
+            return new FileInfo(_filename).Length - (_password == null ? 0 : PAGE_SIZE);
         }
 
         /// <summary>

@@ -68,7 +68,39 @@ namespace LiteDB.Studio
 
             _connectionString = connectionString;
 
-            _codeCompletion.UpdateCodeCompletion(_db);
+            // checks for database upgrade
+            try
+            {
+                _codeCompletion.UpdateCodeCompletion(_db);
+            }
+            catch (LiteException ex) when (ex.ErrorCode == LiteException.INVALID_DATABASE)
+            {
+                var confirm = MessageBox.Show(
+                    "This datafile are not valid as current LiteDB format. Do you want try to upgrade? (this operation will backup your database first)",
+                    "Upgrade",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                _db.Dispose();
+                _db = null;
+
+                if (confirm == DialogResult.Yes)
+                {
+                    LiteEngine.Upgrade(connectionString.Filename, connectionString.Password);
+
+                    MessageBox.Show("Datafile upgraded successfully", "Upgrade", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+
+                    _db = new LiteDatabase(connectionString);
+
+                    _codeCompletion.UpdateCodeCompletion(_db);
+                }
+                else
+                {
+                    MessageBox.Show("Aborted operation", "Upgrade", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+
+                    throw ex;
+                }
+            }
 
             btnConnect.Text = "Disconnect";
 
@@ -621,5 +653,19 @@ namespace LiteDB.Studio
         }
 
         #endregion
+
+        private void mnuShrink_Click(object sender, EventArgs e)
+        {
+            var s = new ShrinkForm(_connectionString.Filename, _connectionString.Password, this.Disconnect);
+
+            s.ShowDialog();
+
+            if (_db == null)
+            {
+                _connectionString.Password = s.NewPassword;
+
+                this.Connect(_connectionString);
+            }
+        }
     }
 }

@@ -12,16 +12,47 @@ namespace LiteDB.Engine
     /// </summary>
     internal class FileReaderV7 : IFileReader
     {
-        private BinaryReader _reader;
+        // v7 uses 4k page size
+        private const int V7_PAGE_SIZE = 4096;
+
+        private readonly Stream _stream;
+        private readonly AesEncryption _aes;
+
+        private byte[] _buffer = new byte[V7_PAGE_SIZE];
 
         public int UserVersion { get; set; }
 
-        public FileReaderV7(Stream stream)
+        public FileReaderV7(Stream stream, string password)
         {
-            _reader = new BinaryReader(stream);
+            _stream = stream;
 
             // only userVersion was avaiable in old file format versions
-            this.UserVersion = this.ReadPage(0)["userVersion"].AsInt32;
+            var header = this.ReadPage(0);
+
+            this.UserVersion = header["userVersion"].AsInt32;
+
+            if (password == null && header["salt"].AsBinary.IsFullZero() == false)
+            {
+                throw new LiteException(0, "Current datafile requires password");
+            }
+            else if (password != null)
+            {
+                if (header["salt"].AsBinary.IsFullZero())
+                {
+                    throw new LiteException(0, "Current datafile has no encryption - do not use password");
+                }
+
+                var hash = AesEncryption.HashSHA1(password);
+
+                if (hash.SequenceEqual(header["password"].AsBinary) == false)
+                {
+                    throw new LiteException(0, "Invalid database password");
+                }
+            }
+
+            _aes = password == null ?
+                null :
+                new AesEncryption(password, header["salt"].AsBinary);
         }
 
         /// <summary>
@@ -105,62 +136,79 @@ namespace LiteDB.Engine
         /// </summary>
         private BsonDocument ReadPage(uint pageID)
         {
-            // v7 use 4K page size
-            _reader.BaseStream.Position = pageID * 4096;
+            _stream.Position = pageID * V7_PAGE_SIZE; // v7 uses 4k page size
+
+            _stream.Read(_buffer, 0, V7_PAGE_SIZE);
+
+            // decrypt encrypted page (except header page - header are plain data)
+            if (_aes != null && pageID > 0)
+            {
+                _buffer = _aes.Decrypt(_buffer);
+            }
+
+            var reader = new ByteReader(_buffer);
 
             // reading page header
             var page = new BsonDocument
             {
-                ["pageID"] = (int)_reader.ReadUInt32(),
-                ["pageType"] = (int)_reader.ReadByte(),
-                ["prevPageID"] = (int)_reader.ReadUInt32(),
-                ["nextPageID"] = (int)_reader.ReadUInt32(),
-                ["itemCount"] = (int)_reader.ReadUInt16()
+                ["pageID"] = (int)reader.ReadUInt32(),
+                ["pageType"] = (int)reader.ReadByte(),
+                ["prevPageID"] = (int)reader.ReadUInt32(),
+                ["nextPageID"] = (int)reader.ReadUInt32(),
+                ["itemCount"] = (int)reader.ReadUInt16()
             };
 
             // skip freeByte + reserved
-            _reader.ReadBytes(2 + 8);
+            reader.ReadBytes(2 + 8);
 
-            #region Header
+            #region Header (1)
 
             // read header
             if (page["pageType"] == 1)
             {
-                // skip HEADER_INFO + VERSION + ChangeID + FreeEmptyPageID + LastPageID
-                _reader.ReadBytes(27 + 1 + 2 + 4 + 4);
-                page["userVersion"] = (int)_reader.ReadUInt16();
-                page["password"] = _reader.ReadBytes(20);
-                page["salt"] = _reader.ReadBytes(16);
+                var info = reader.ReadString(27);
+                var ver = reader.ReadByte();
+
+                if (string.CompareOrdinal(info, HeaderPage.HEADER_INFO) != 0 || ver != 7)
+                {
+                    throw LiteException.InvalidDatabase();
+                }
+
+                // skip ChangeID + FreeEmptyPageID + LastPageID
+                reader.ReadBytes(2 + 4 + 4);
+                page["userVersion"] = (int)reader.ReadUInt16();
+                page["password"] = reader.ReadBytes(20);
+                page["salt"] = reader.ReadBytes(16);
                 page["collections"] = new BsonArray();
 
-                var cols = _reader.ReadByte();
+                var cols = reader.ReadByte();
 
                 for (var i = 0; i < cols; i++)
                 {
                     page["collections"].AsArray.Add(new BsonDocument
                     {
-                        ["name"] = _reader.ReadStringLegacy(),
-                        ["pageID"] = (int)_reader.ReadUInt32()
+                        ["name"] = reader.ReadString(),
+                        ["pageID"] = (int)reader.ReadUInt32()
                     });
                 }
             }
 
             #endregion
 
-            #region Collection
+            #region Collection (2)
 
             // collection page
             else if (page["pageType"] == 2)
             {
-                page["collectionName"] = _reader.ReadStringLegacy();
+                page["collectionName"] = reader.ReadString();
                 page["indexes"] = new BsonArray();
-                _reader.ReadBytes(12);
+                reader.ReadBytes(12);
 
                 for(var i = 0; i < 16; i++)
                 {
                     var index = new BsonDocument();
 
-                    var field = _reader.ReadStringLegacy();
+                    var field = reader.ReadString();
                     var eq = field.IndexOf('=');
 
                     if (eq > 0)
@@ -174,11 +222,11 @@ namespace LiteDB.Engine
                         index["expression"] = "$." + field;
                     }
 
-                    index["unique"] = _reader.ReadBoolean();
-                    index["headPageID"] = (int)_reader.ReadUInt32();
+                    index["unique"] = reader.ReadBoolean();
+                    index["headPageID"] = (int)reader.ReadUInt32();
 
                     // skip HeadNode (index) + TailNode + FreeIndexPageID
-                    _reader.ReadBytes(2 + 6 + 4);
+                    reader.ReadBytes(2 + 6 + 4);
 
                     if (field.Length > 0)
                     {
@@ -189,7 +237,7 @@ namespace LiteDB.Engine
 
             #endregion
 
-            #region Index
+            #region Index (3)
 
             else if (page["pageType"] == 3)
             {
@@ -199,37 +247,37 @@ namespace LiteDB.Engine
                 {
                     var node = new BsonDocument
                     {
-                        ["index"] = (int)_reader.ReadUInt16()
+                        ["index"] = (int)reader.ReadUInt16()
                     };
 
-                    var levels = _reader.ReadByte();
+                    var levels = reader.ReadByte();
 
                     // skip Slot + PrevNode + NextNode
-                    _reader.ReadBytes(1 + 6 + 6);
+                    reader.ReadBytes(1 + 6 + 6);
 
-                    var length = _reader.ReadUInt16();
+                    var length = reader.ReadUInt16();
 
                     // skip DataType + KeyValue
-                    _reader.ReadBytes(1 + length);
+                    reader.ReadBytes(1 + length);
 
                     node["dataBlock"] = new BsonDocument
                     {
-                        ["pageID"] = (int)_reader.ReadUInt32(),
-                        ["index"] = (int)_reader.ReadUInt16()
+                        ["pageID"] = (int)reader.ReadUInt32(),
+                        ["index"] = (int)reader.ReadUInt16()
                     };
 
                     // skip Prev[0]
-                    _reader.ReadBytes(6);
+                    reader.ReadBytes(6);
 
                     // reading Next[0]
                     node["next"] = new BsonDocument
                     {
-                        ["pageID"] = (int)_reader.ReadUInt32(),
-                        ["index"] = (int)_reader.ReadUInt16()
+                        ["pageID"] = (int)reader.ReadUInt32(),
+                        ["index"] = (int)reader.ReadUInt16()
                     };
 
                     // skip Prev/Next[1..N]
-                    _reader.ReadBytes((levels - 1) * (6 + 6));
+                    reader.ReadBytes((levels - 1) * (6 + 6));
 
                     page["nodes"].AsArray.Add(node);
                 }
@@ -237,7 +285,7 @@ namespace LiteDB.Engine
 
             #endregion
 
-            #region Data
+            #region Data (4)
 
             else if (page["pageType"] == 4)
             {
@@ -247,13 +295,13 @@ namespace LiteDB.Engine
                 {
                     var block = new BsonDocument
                     {
-                        ["index"] = (int)_reader.ReadUInt16(),
-                        ["extendPageID"] = (int)_reader.ReadUInt32()
+                        ["index"] = (int)reader.ReadUInt16(),
+                        ["extendPageID"] = (int)reader.ReadUInt32()
                     };
 
-                    var length = _reader.ReadUInt16();
+                    var length = reader.ReadUInt16();
 
-                    block["data"] = _reader.ReadBytes(length);
+                    block["data"] = reader.ReadBytes(length);
 
                     page["blocks"].AsArray.Add(block);
                 }
@@ -261,11 +309,11 @@ namespace LiteDB.Engine
 
             #endregion
 
-            #region Extend
+            #region Extend (5)
 
             else if (page["pageType"] == 5)
             {
-                page["data"] = _reader.ReadBytes(page["itemCount"].AsInt32);
+                page["data"] = reader.ReadBytes(page["itemCount"].AsInt32);
             }
 
             #endregion
@@ -292,6 +340,10 @@ namespace LiteDB.Engine
 
                 return buffer.ToArray();
             }
+        }
+
+        public void Dispose()
+        {
         }
     }
 }

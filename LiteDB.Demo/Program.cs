@@ -21,35 +21,55 @@ namespace LiteDB.Demo
             Console.WriteLine("LITE DB v5");
             Console.WriteLine("===========================================================");
 
-            var rnd = new Random();
+            //var cn = @"filename=d:\appPWD.db; password=abc";
 
-            var list = Enumerable.Range(0, 10_000).Select(x => new KeyValuePair<BsonValue, PageAddress>(rnd.Next(0, 1000), PageAddress.Empty));
-            //var list = Enumerable.Range(0, 1_000).Select(x => new KeyValuePair<BsonValue, PageAddress>(
-            //    (Guid.NewGuid().ToString("n") + Guid.NewGuid().ToString("n"))
-            //    .Substring(0, rnd.Next(5, 64)), PageAddress.Empty));
+            File.Delete(@"d:\app.db");
+            File.Delete(@"d:\app-log.db");
+
+            //using (var repo = new LiteRepository(cn))
+            //{
+            //    repo.Database.UserVersion = 99;
+            //}
+
 
             var sw = new Stopwatch();
-            sw.Start();
+
+            using (var e = new LiteEngine(new EngineSettings { Filename = @"d:\app.db" }))
+            {
+                sw.Start();
+
+                // insert 5.000 docs
+                //e.Insert("col1", Enumerable.Range(1, 5000).Select(x => new BsonDocument { ["_id"] = x }), BsonAutoId.Int32);
+
+                foreach(var d in Enumerable.Range(1, 5000).Select(x => new BsonDocument { ["_id"] = x }))
+                {
+                    e.Insert("col1", new BsonDocument[] { d }, BsonAutoId.Int32);
+
+                }
+
+
+                e.Checkpoint();
+                sw.Stop();
+            }
+
+
+            Console.WriteLine("Time: " + sw.ElapsedMilliseconds);
             //
-            //list.OrderBy(x => x.Key).Count();
+            //using (var repo = new LiteRepository(cn))
+            //{
+            //    var u = repo.Database.UserVersion;
             //
-            //sw.Stop();
-            //Console.WriteLine("Elapsed (linq): " + sw.ElapsedMilliseconds + " ms");
-            //sw.Restart();
+            //    Console.WriteLine(u);
+            //
+            //    var mau = repo.FirstOrDefault<BsonDocument>(x => x["_id"] == 1, "col1");
+            //    //
+            //    Console.WriteLine("dados:" + mau["n"].AsString);
+            //
+            //}
 
-            // using (var s = new MergeSortService(100 * 8192, false))
-            // {
-            //     //var result = s.Sort(list, Query.Ascending).Count();
-            // 
-            //     s.Sort(list, Query.Descending).ToList().ForEach(x => Console.Write(x.Key.AsInt32 + ";"));
-            // }
 
-            sw.Stop();
-            Console.WriteLine("\nElapsed (merge): " + sw.ElapsedMilliseconds + " ms");
 
-            
-
-            Console.WriteLine("===========================================================");
+            Console.WriteLine(" ===========================================================");
             Console.WriteLine("End");
             Console.ReadKey();
         }
