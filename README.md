@@ -1,3 +1,25 @@
+# LiteDB - v6 - PROPOSE
+
+LiteDB 6 will contains
+
+
+Major features and changes:
+- Fully async read/write for all methods
+- No lock for read operations
+- Hook database in request/response for any method, including input/output documents results
+- Droped transactions (see below)
+- Convert `LiteDatabase` into  Enitity Framework Provider
+- Implement ACID transaction with multicollection-bulk operator
+
+## New `LiteContext`
+
+Works as unit-of-works design pattern do 
+
+### Make 
+When operations run in async there is no more 
+
+---
+
 # LiteDB - A .NET NoSQL Document Store in a single data file
 
 [![Join the chat at https://gitter.im/mbdavid/LiteDB](https://badges.gitter.im/mbdavid/LiteDB.svg)](https://gitter.im/mbdavid/LiteDB?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) [![Build status](https://ci.appveyor.com/api/projects/status/sfe8he0vik18m033?svg=true)](https://ci.appveyor.com/project/mbdavid/litedb) [![Build Status](https://travis-ci.org/mbdavid/LiteDB.svg?branch=master)](https://travis-ci.org/mbdavid/LiteDB)

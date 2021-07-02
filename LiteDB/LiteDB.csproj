@@ -51,6 +51,15 @@
     <Compile Include="Engine\Disk\Serializer\Async\BufferWriterAsync.cs" />
     <Compile Include="Engine\Disk\Serializer\BufferReader.cs" />
     <Compile Include="Engine\Disk\Serializer\BufferWriter.cs" />
+    <Compile Include="Engine\Disk\StreamFactory\FileStreamFactory.cs" />
+    <Compile Include="Engine\Disk\StreamFactory\IStreamFactory.cs" />
+    <Compile Include="Engine\Disk\StreamFactory\StreamFactory.cs" />
+    <Compile Include="Engine\Disk\StreamFactory\StreamPool.cs" />
+    <Compile Include="Engine\Disk\Streams\AesEcbStream.cs" />
+    <Compile Include="Engine\Disk\Streams\AesStream.cs" />
+    <Compile Include="Engine\Disk\Streams\ConcurrentStream.cs" />
+    <Compile Include="Engine\Disk\Streams\EncryptionType.cs" />
+    <Compile Include="Engine\Disk\Streams\TempStream.cs" />
     <Compile Include="Engine\ILiteEngine.cs" />
     <Compile Include="Engine\Structures\PageAddress.cs" />
   </ItemGroup>
@@ -60,8 +69,10 @@
     <None Include="..\LICENSE" Pack="true" PackagePath="" />
     <None Include="..\icon_64x64.png" Pack="true" PackagePath="\" />
   </ItemGroup>
+  
   <ItemGroup>
     <PackageReference Include="System.Buffers" Version="4.5.1" />
+    <PackageReference Include="System.Memory" Version="4.5.4" />
   </ItemGroup>
   
   <!-- End References -->

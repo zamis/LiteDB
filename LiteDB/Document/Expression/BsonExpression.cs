@@ -59,11 +59,6 @@ namespace LiteDB
         internal BsonExpression Right { get; set; }
 
         /// <summary>
-        /// Get/Set this expression (or any inner expression) use global Source (*)
-        /// </summary>
-        internal bool UseSource { get; set; }
-
-        /// <summary>
         /// Get transformed LINQ expression
         /// </summary>
         internal Expression Expression { get; set; }
@@ -107,13 +102,6 @@ namespace LiteDB
         /// </summary>
         internal bool IsValue =>
             this.Fields.Count == 0;
-
-        /// <summary>
-        /// Indicate when predicate expression uses ANY keywork for filter array items
-        /// </summary>
-        internal bool IsANY =>
-            this.IsPredicate &&
-            this.Expression.ToString().Contains("_ANY");
 
         /// <summary>
         /// Compiled Expression into a function to be executed: func(source[], root, current, parameters)[]

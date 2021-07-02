@@ -181,7 +181,6 @@ namespace LiteDB
                             Type = type,
                             Parameters = parameters,
                             IsImmutable = left.IsImmutable && right.IsImmutable,
-                            UseSource = left.UseSource || right.UseSource,
                             IsScalar = true,
                             Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase).AddRange(left.Fields).AddRange(right.Fields),
                             Expression = Expression.Call(method, args.ToArray()),
@@ -217,7 +216,6 @@ namespace LiteDB
                 TryParseBool(tokenizer, parameters) ??
                 TryParseNull(tokenizer, parameters) ??
                 TryParseString(tokenizer, parameters) ??
-                TryParseSource(tokenizer, context, parameters, scope) ??
                 TryParseDocument(tokenizer, context, parameters, scope) ??
                 TryParseArray(tokenizer, context, parameters, scope) ??
                 TryParseParameter(tokenizer, context, parameters, scope) ??
@@ -319,7 +317,6 @@ namespace LiteDB
                 Type = BsonExpressionType.Document,
                 Parameters = parameters,
                 IsImmutable = fields.All(x => x.Value.IsImmutable),
-                UseSource = fields.Any(x => x.Value.UseSource),
                 IsScalar = true,
                 Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase).AddRange(fields.SelectMany(x => x.Value.Fields)),
                 Expression = Expression.Call(_documentInitMethod, new Expression[] { arrKeys, arrValues }),
@@ -348,7 +345,6 @@ namespace LiteDB
             var values = new List<Expression>();
             var src = new StringBuilder();
             var isImmutable = true;
-            var useSource = false;
             var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             src.Append("{");
@@ -367,7 +363,6 @@ namespace LiteDB
 
                 // update isImmutable only when came false
                 if (value.IsImmutable == false) isImmutable = false;
-                if (value.UseSource) useSource = true;
 
                 fields.AddRange(value.Fields);
 
@@ -399,7 +394,6 @@ namespace LiteDB
                 Type = BsonExpressionType.Document,
                 Parameters = parameters,
                 IsImmutable = isImmutable,
-                UseSource = useSource,
                 IsScalar = true,
                 Fields = fields,
                 Expression = docExpr,
@@ -440,7 +434,6 @@ namespace LiteDB
                     Type = BsonExpressionType.Double,
                     Parameters = parameters,
                     IsImmutable = true,
-                    UseSource = false,
                     IsScalar = true,
                     Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     Expression = constant,
@@ -484,7 +477,6 @@ namespace LiteDB
                         Type = BsonExpressionType.Int,
                         Parameters = parameters,
                         IsImmutable = true,
-                        UseSource = false,
                         IsScalar = true,
                         Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                         Expression = constant32,
@@ -500,7 +492,6 @@ namespace LiteDB
                     Type = BsonExpressionType.Int,
                     Parameters = parameters,
                     IsImmutable = true,
-                    UseSource = false,
                     IsScalar = true,
                     Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     Expression = constant64,
@@ -526,7 +517,6 @@ namespace LiteDB
                     Type = BsonExpressionType.Boolean,
                     Parameters = parameters,
                     IsImmutable = true,
-                    UseSource = false,
                     IsScalar = true,
                     Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     Expression = constant,
@@ -551,7 +541,6 @@ namespace LiteDB
                     Type = BsonExpressionType.Null,
                     Parameters = parameters,
                     IsImmutable = true,
-                    UseSource = false,
                     IsScalar = true,
                     Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     Expression = constant,
@@ -577,7 +566,6 @@ namespace LiteDB
                     Type = BsonExpressionType.String,
                     Parameters = parameters,
                     IsImmutable = true,
-                    UseSource = false,
                     IsScalar = true,
                     Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     Expression = constant,
@@ -602,7 +590,6 @@ namespace LiteDB
             var values = new List<Expression>();
             var src = new StringBuilder();
             var isImmutable = true;
-            var useSource = false;
             var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             src.Append("{");
@@ -646,7 +633,6 @@ namespace LiteDB
                             Type = BsonExpressionType.Path,
                             Parameters = parameters,
                             IsImmutable = isImmutable,
-                            UseSource = useSource,
                             IsScalar = true,
                             Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase).AddRange(new string[] { key }),
                             Expression = Expression.Call(_memberPathMethod, context.Root, Expression.Constant(key)) as Expression,
@@ -659,7 +645,6 @@ namespace LiteDB
 
                     // update isImmutable only when came false
                     if (value.IsImmutable == false) isImmutable = false;
-                    if (value.UseSource) useSource = true;
 
                     fields.AddRange(value.Fields);
 
@@ -688,58 +673,11 @@ namespace LiteDB
                 Type = BsonExpressionType.Document,
                 Parameters = parameters,
                 IsImmutable = isImmutable,
-                UseSource = useSource,
                 IsScalar = true,
                 Fields = fields,
                 Expression = Expression.Call(_documentInitMethod, new Expression[] { arrKeys, arrValues }),
                 Source = src.ToString()
             };
-        }
-
-        /// <summary>
-        /// Try parse source documents (when passed) * - return null if not source token
-        /// </summary>
-        private static BsonExpression TryParseSource(Tokenizer tokenizer, ExpressionContext context, BsonDocument parameters, DocumentScope scope)
-        {
-            if (tokenizer.Current.Type != TokenType.Asterisk) return null;
-
-            var sourceExpr = new BsonExpression
-            {
-                Type = BsonExpressionType.Source,
-                Parameters = parameters,
-                IsImmutable = true,
-                UseSource = true,
-                IsScalar = false,
-                Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "$" },
-                Expression = context.Source,
-                Source = "*"
-            };
-
-            // checks if next token is "." to shortcut from "*.Name" as "MAP(*, @.Name)"
-            if (tokenizer.LookAhead(false).Type == TokenType.Period)
-            {
-                tokenizer.ReadToken(); // consume .
-
-                var pathExpr = BsonExpression.ParseAndCompile(tokenizer, BsonExpressionParserMode.Single, parameters, DocumentScope.Source);
-
-                if (pathExpr == null) throw LiteException.UnexpectedToken(tokenizer.Current);
-
-                return new BsonExpression
-                {
-                    Type = BsonExpressionType.Map,
-                    Parameters = parameters,
-                    IsImmutable = pathExpr.IsImmutable,
-                    UseSource = true,
-                    IsScalar = false,
-                    Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase).AddRange(pathExpr.Fields),
-                    Expression = Expression.Call(BsonExpression.GetFunction("MAP"), context.Root, context.Collation, context.Parameters, sourceExpr.Expression, Expression.Constant(pathExpr)),
-                    Source = "MAP(*=>" + pathExpr.Source + ")"
-                };
-            }
-            else
-            {
-                return sourceExpr;
-            }
         }
 
         /// <summary>
@@ -752,7 +690,6 @@ namespace LiteDB
             var values = new List<Expression>();
             var src = new StringBuilder();
             var isImmutable = true;
-            var useSource = false;
             var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             src.Append("[");
@@ -776,7 +713,6 @@ namespace LiteDB
 
                     // update isImmutable only when came false
                     if (value.IsImmutable == false) isImmutable = false;
-                    if (value.UseSource) useSource = true;
 
                     fields.AddRange(value.Fields);
 
@@ -800,7 +736,6 @@ namespace LiteDB
                 Type = BsonExpressionType.Array,
                 Parameters = parameters,
                 IsImmutable = isImmutable,
-                UseSource = useSource,
                 IsScalar = true,
                 Fields = fields,
                 Expression = Expression.Call(_arrayInitMethod, arrValues),
@@ -827,7 +762,6 @@ namespace LiteDB
                     Type = BsonExpressionType.Parameter,
                     Parameters = parameters,
                     IsImmutable = false,
-                    UseSource = false,
                     IsScalar = true,
                     Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     Expression = Expression.Call(_parameterPathMethod, context.Parameters, name),
@@ -858,7 +792,6 @@ namespace LiteDB
                 Type = inner.Type,
                 Parameters = inner.Parameters,
                 IsImmutable = inner.IsImmutable,
-                UseSource = inner.UseSource,
                 IsScalar = inner.IsScalar,
                 Fields = inner.Fields,
                 Expression = inner.Expression,
@@ -885,7 +818,6 @@ namespace LiteDB
             var pars = new List<BsonExpression>();
             var src = new StringBuilder();
             var isImmutable = true;
-            var useSource = false;
             var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             src.Append(token.Value.ToUpper() + "(");
@@ -903,7 +835,6 @@ namespace LiteDB
 
                     // update isImmutable only when came false
                     if (parameter.IsImmutable == false) isImmutable = false;
-                    if (parameter.UseSource) useSource = true;
 
                     // add fields from each parameters
                     fields.AddRange(parameter.Fields);
@@ -969,7 +900,6 @@ namespace LiteDB
                 Type = BsonExpressionType.Call,
                 Parameters = parameters,
                 IsImmutable = isImmutable,
-                UseSource = useSource,
                 IsScalar = method.ReturnType.IsEnumerable() == false,
                 Fields = fields,
                 Expression = Expression.Call(method, args.ToArray()),
@@ -1041,7 +971,6 @@ namespace LiteDB
                 Type = BsonExpressionType.Path,
                 Parameters = parameters,
                 IsImmutable = isImmutable,
-                UseSource = useSource,
                 IsScalar = isScalar,
                 Fields = fields,
                 Expression = expr,
@@ -1062,7 +991,6 @@ namespace LiteDB
                     Type = BsonExpressionType.Map,
                     Parameters = parameters,
                     IsImmutable = pathExpr.IsImmutable && mapExpr.IsImmutable,
-                    UseSource = pathExpr.UseSource || mapExpr.UseSource,
                     IsScalar = false,
                     Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase).AddRange(pathExpr.Fields).AddRange(mapExpr.Fields),
                     Expression = Expression.Call(BsonExpression.GetFunction("MAP"), context.Root, context.Collation, context.Parameters, pathExpr.Expression, Expression.Constant(mapExpr)),
@@ -1135,7 +1063,6 @@ namespace LiteDB
 
                     // if array filter is not immutable, update ref (update only when false)
                     if (inner.IsImmutable == false) isImmutable = false;
-                    if (inner.UseSource) useSource = true;
 
                     // if inner expression returns a single parameter, still Scalar
                     // otherwise it's an operand filter expression (enumerable)
@@ -1209,7 +1136,6 @@ namespace LiteDB
 
             var src = new StringBuilder(functionName + "(" + left.Source);
             var isImmutable = left.IsImmutable;
-            var useSource = left.UseSource;
             var fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             args.Add(left.Expression);
@@ -1242,7 +1168,6 @@ namespace LiteDB
 
                     // update isImmutable only when came false
                     if (parameter.IsImmutable == false) isImmutable = false;
-                    if (parameter.UseSource) useSource = true;
 
                     args.Add(parameter.Expression);
                     src.Append(parameter.Source);
@@ -1268,7 +1193,6 @@ namespace LiteDB
                 Type = type,
                 Parameters = parameters,
                 IsImmutable = isImmutable,
-                UseSource = useSource,
                 IsScalar = false,
                 Fields = fields,
                 Expression = Expression.Call(method, args.ToArray()),
@@ -1294,7 +1218,6 @@ namespace LiteDB
                 Type = BsonExpressionType.Array,
                 Parameters = item0.Parameters, // should be == item1.Parameters
                 IsImmutable = item0.IsImmutable && item1.IsImmutable,
-                UseSource = item0.UseSource || item1.UseSource,
                 IsScalar = true,
                 Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase).AddRange(item0.Fields).AddRange(item1.Fields),
                 Expression = Expression.Call(_arrayInitMethod, new Expression[] { arrValues }),
@@ -1418,7 +1341,6 @@ namespace LiteDB
                 Type = exprType,
                 Parameters = expr.Parameters,
                 IsImmutable = expr.IsImmutable,
-                UseSource = expr.UseSource,
                 IsScalar = false,
                 Fields = expr.Fields,
                 Expression = Expression.Call(_itemsMethod, expr.Expression),
@@ -1436,7 +1358,6 @@ namespace LiteDB
                 Type = BsonExpressionType.Call,
                 Parameters = expr.Parameters,
                 IsImmutable = expr.IsImmutable,
-                UseSource = expr.UseSource,
                 IsScalar = true,
                 Fields = expr.Fields,
                 Expression = Expression.Call(_arrayMethod, expr.Expression),
@@ -1468,7 +1389,6 @@ namespace LiteDB
                 Type = type,
                 Parameters = left.Parameters, // should be == right.Parameters
                 IsImmutable = left.IsImmutable && right.IsImmutable,
-                UseSource = left.UseSource || right.UseSource,
                 IsScalar = left.IsScalar && right.IsScalar,
                 Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase).AddRange(left.Fields).AddRange(right.Fields),
                 Expression = Expression.New(ctor, expr),
@@ -1496,7 +1416,6 @@ namespace LiteDB
                 Type = BsonExpressionType.Call, // there is not specific Conditional
                 Parameters = test.Parameters, // should be == ifTrue|ifFalse parameters
                 IsImmutable = test.IsImmutable && ifTrue.IsImmutable || ifFalse.IsImmutable,
-                UseSource = test.UseSource || ifTrue.UseSource || ifFalse.UseSource,
                 IsScalar = test.IsScalar && ifTrue.IsScalar && ifFalse.IsScalar,
                 Fields = new HashSet<string>(StringComparer.OrdinalIgnoreCase).AddRange(test.Fields).AddRange(ifTrue.Fields).AddRange(ifFalse.Fields),
                 Expression = expr,

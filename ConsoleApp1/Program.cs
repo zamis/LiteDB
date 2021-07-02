@@ -1,6 +1,8 @@
 ﻿using LiteDB;
 
 using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace ConsoleApp1
 {
@@ -8,20 +10,36 @@ namespace ConsoleApp1
     {
         static void Main(string[] args)
         {
-            var d = JsonSerializer.Deserialize(@"
+            MainAsync().Wait();
+
+            Console.ReadKey();
+        }
+
+        static BsonDocument[] list = new []
+        {
+            new BsonDocument { ["name"] = "john" },
+            new BsonDocument { ["name"] = "doe" },
+        };
+
+        static async Task MainAsync()
+        {
+            var e = BsonExpression.Create(@"$");
+
+            var values = e.Execute(list);
+
+            foreach(var value in values)
             {
-                _id:1, 
-                nome: 'Mauricio'
-            }").AsDocument;
+                Console.WriteLine(value.ToString());
+            }
+        }
 
-            var e = BsonExpression.Create(@"EXTEND($, { nome: UPPER(nome) })");
-
-            var r = e.ExecuteScalar(d);
-
-            Console.WriteLine("   doc=" + d.ToString());
-            Console.WriteLine("  expr=" + e.ToString());
-            Console.WriteLine("result=" + r.ToString());
-
+        static async IAsyncEnumerable<BsonDocument> SourceAsync()
+        {
+            foreach(var doc in list)
+            {
+                yield return doc;
+                await Task.Delay(200);
+            }
         }
     }
 }
