@@ -9,6 +9,8 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
+
 using static LiteDB.Constants;
 
 namespace LiteDB.Engine
@@ -59,21 +61,33 @@ namespace LiteDB.Engine
         /// <summary>
         /// Get page from clean cache (readable). If page not exits, create this new page and load data using factory fn
         /// </summary>
-        public PageBuffer GetReadablePage(long position, Action<long, BufferSlice> factory)
+        public async Task<PageBuffer> GetReadablePageAsync(long position, Stream stream, CancellationToken cancellationToken)
         {
-            // try get from _readble dict or create new
-            var page = _readable.GetOrAdd(position, (k) =>
+            if (_readable.TryGetValue(position, out var page) == false)
             {
                 // get new page from _free pages (or extend)
-                var newPage = this.GetFreePage();
+                page = this.GetFreePage();
 
-                newPage.Position = position;
+                page.Position = position;
 
                 // load page content with disk stream
-                factory(position, newPage);
+                stream.Position = position;
 
-                return newPage;
-            });
+                await stream.ReadAsync(page.Array, page.Offset, page.Count, cancellationToken);
+
+                if (_readable.TryAdd(position, page) == false)
+                {
+                    this.DiscardPage(page);
+
+                    page = _readable.GetOrAdd(position, (p) =>
+                    {
+                        page.Position = p;
+
+                        return page;
+                    });
+                }
+
+            }
 
             // update LRU
             Interlocked.Exchange(ref page.Timestamp, DateTime.UtcNow.Ticks);
@@ -92,7 +106,7 @@ namespace LiteDB.Engine
         /// Request for a writable page - no other can read this page and this page has no reference
         /// Writable pages can be MoveToReadable() or DiscardWritable() - but never Released()
         /// </summary>
-        public PageBuffer GetWritablePage(long position, Action<long, BufferSlice> factory)
+        public async Task<PageBuffer> GetWritablePageAsync(long position, Stream stream, CancellationToken cancellationToken)
         {
             // write pages always contains a new buffer array
             var writable = this.NewPage(position);
@@ -104,7 +118,9 @@ namespace LiteDB.Engine
             }
             else
             {
-                factory(position, writable);
+                stream.Position = position;
+
+                await stream.ReadAsync(writable.Array, writable.Offset, writable.Count, cancellationToken);
             }
 
             return writable;
