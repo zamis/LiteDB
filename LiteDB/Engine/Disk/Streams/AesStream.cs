@@ -3,6 +3,9 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
 using XTSSharp;
 using static LiteDB.Constants;
 
@@ -105,6 +108,16 @@ namespace LiteDB.Engine
         public override int Read(byte[] buffer, int offset, int count) => _aesStream.Read(buffer, offset, count);
 
         public override void Write(byte[] buffer, int offset, int count) => _aesStream.Write(buffer, offset, count);
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => _aesStream.ReadAsync(buffer, offset, count, cancellationToken);
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => _aesStream.ReadAsync(buffer, cancellationToken);
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => _aesStream.WriteAsync(buffer, offset, count, cancellationToken);
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) => _aesStream.WriteAsync(buffer, cancellationToken);
+
+        public override Task FlushAsync(CancellationToken cancellationToken) => _aesStream.FlushAsync(cancellationToken);
 
         #endregion
 

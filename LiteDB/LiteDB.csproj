@@ -47,6 +47,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Engine\Disk\MemoryCache.cs" />
     <Compile Include="Engine\Disk\Serializer\Async\BufferReaderAsync.cs" />
     <Compile Include="Engine\Disk\Serializer\Async\BufferWriterAsync.cs" />
     <Compile Include="Engine\Disk\Serializer\BufferReader.cs" />
@@ -61,7 +62,12 @@
     <Compile Include="Engine\Disk\Streams\EncryptionType.cs" />
     <Compile Include="Engine\Disk\Streams\TempStream.cs" />
     <Compile Include="Engine\ILiteEngine.cs" />
+    <Compile Include="Engine\Structures\LockMode.cs" />
     <Compile Include="Engine\Structures\PageAddress.cs" />
+    <Compile Include="Engine\Structures\PageBuffer.cs" />
+    <Compile Include="Engine\Structures\PagePosition.cs" />
+    <Compile Include="Engine\Structures\PageType.cs" />
+    <Compile Include="Engine\Structures\Pragmas.cs" />
   </ItemGroup>
 
   <!-- Begin References -->
@@ -73,6 +79,10 @@
   <ItemGroup>
     <PackageReference Include="System.Buffers" Version="4.5.1" />
     <PackageReference Include="System.Memory" Version="4.5.4" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <Folder Include="Engine\Pages\" />
   </ItemGroup>
   
   <!-- End References -->
