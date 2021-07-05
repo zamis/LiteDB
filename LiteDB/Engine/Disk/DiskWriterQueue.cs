@@ -21,8 +21,9 @@ namespace LiteDB.Engine
     {
         private readonly Stream _stream;
 
-        // async thread controls
         private Task _task;
+        private bool _running;
+        private ManualResetEventSlim _waitHandle = new ManualResetEventSlim(false);
 
         private ConcurrentQueue<PageBuffer> _queue = new ConcurrentQueue<PageBuffer>();
 
@@ -37,54 +38,46 @@ namespace LiteDB.Engine
         public int Length => _queue.Count;
 
         /// <summary>
-        /// Add page into writer queue and will be saved in disk by another thread. If page.Position = MaxValue, store at end of file (will get final Position)
-        /// After this method, this page will be available into reader as a clean page
+        /// Add new pages into write queue list to be written on disk on LOG file
         /// </summary>
-        public void EnqueuePage(PageBuffer page)
+        public void EnqueuePages(IEnumerable<PageBuffer> pages)
         {
-            _queue.Enqueue(page);
+            if (_running == false) return;
+
+            foreach(var page in pages)
+            {
+                _queue.Enqueue(page);
+            }
+
+            _waitHandle.Set();
         }
 
         /// <summary>
-        /// If queue contains pages and are not running, starts run queue again now
+        /// Create a background task to keep running over queue to write on stream
         /// </summary>
-        public void Run()
+        public void StartTask(CancellationToken cancellationToken)
         {
-            lock (_queue)
+            if (_task != null) throw new Exception("Background task aldready created");
+
+            _task = Task.Run(async () =>
             {
-                if (_queue.Count > 0 && (_task == null || _task.IsCompleted))
+                while (_running)
                 {
-                    // https://blog.stephencleary.com/2013/08/startnew-is-dangerous.html
-                    _task = Task.Run(this.ExecuteQueue);
-                }
-            }
-        }
+                    _waitHandle.Reset();
 
-        /// <summary>
-        /// Wait until all queue be executed and no more pending pages are waiting for write - be sure you do a full lock database before call this
-        /// </summary>
-        public void Wait()
-        {
-            lock (_queue)
-            {
-                if (_task != null)
-                {
-                    _task.Wait();
-                }
+                    await _waitHandle.WaitAsync(cancellationToken);
 
-                if (_queue.Count > 0)
-                {
-                    this.ExecuteQueue();
-                }
-            }
+                    if (_running == false) break;
 
-            ENSURE(_queue.Count == 0, "queue should be empty after wait() call");
+                    await this.ExecuteQueueAsync(cancellationToken);
+                }
+            });
         }
 
         /// <summary>
         /// Execute all items in queue sync
         /// </summary>
-        private void ExecuteQueue()
+        private async Task ExecuteQueueAsync(CancellationToken cancellationToken)
         {
             if (_queue.Count == 0) return;
 
@@ -99,7 +92,7 @@ namespace LiteDB.Engine
                     // set stream position according to page
                     _stream.Position = page.Position;
 
-                    _stream.Write(page.Array, page.Offset, PAGE_SIZE);
+                    await _stream.WriteAsync(page.Array, page.Offset, PAGE_SIZE, cancellationToken);
 
                     // release page here (no page use after this)
                     page.Release();
@@ -108,7 +101,7 @@ namespace LiteDB.Engine
                 }
 
                 // after this I will have 100% sure data are safe on log file
-                _stream.FlushToDisk();
+                await _stream.FlushAsync(cancellationToken);
             }
             catch (IOException)
             {
@@ -120,8 +113,9 @@ namespace LiteDB.Engine
         {
             LOG($"disposing disk writer queue (with {_queue.Count} pages in queue)", "DISK");
 
-            // run all items in queue before dispose
-            this.Wait();
+            _running = false;
+            _waitHandle.Set();
+            _task.Wait();
         }
     }
 }

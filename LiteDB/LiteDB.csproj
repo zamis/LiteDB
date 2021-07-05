@@ -47,6 +47,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Engine\Disk\DiskReader.cs" />
+    <Compile Include="Engine\Disk\DiskWriterQueue.cs" />
     <Compile Include="Engine\Disk\MemoryCache.cs" />
     <Compile Include="Engine\Disk\Serializer\Async\BufferReaderAsync.cs" />
     <Compile Include="Engine\Disk\Serializer\Async\BufferWriterAsync.cs" />

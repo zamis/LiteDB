@@ -8,6 +8,8 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
+
 using static LiteDB.Constants;
 
 namespace LiteDB.Engine
@@ -33,29 +35,15 @@ namespace LiteDB.Engine
             _stream = new Lazy<Stream>(() => _streamPool.Rent());
         }
 
-        public PageBuffer ReadPage(long position, bool writable)
+        public async Task<PageBuffer> ReadPageAsync(long position, bool writable, CancellationToken cancellationToken)
         {
             ENSURE(position % PAGE_SIZE == 0, "invalid page position");
 
             var page = writable ?
-                _cache.GetWritablePage(position, (pos, buf) => this.ReadStream(_stream.Value, pos, buf)) :
-                _cache.GetReadablePage(position, (pos, buf) => this.ReadStream(_stream.Value, pos, buf));
+                await _cache.GetWritablePageAsync(position, _stream.Value, cancellationToken) :
+                await _cache.GetReadablePageAsync(position, _stream.Value, cancellationToken);
 
             return page;
-        }
-
-        /// <summary>
-        /// Read bytes from stream into buffer slice
-        /// </summary>
-        private void ReadStream(Stream stream, long position, BufferSlice buffer)
-        {
-            // can't test "Length" from out-to-date stream
-            // ENSURE(stream.Length <= position - PAGE_SIZE, "can't be read from beyond file length");
-            stream.Position = position;
-
-            stream.Read(buffer.Array, buffer.Offset, buffer.Count);
-
-            DEBUG(buffer.All(0) == false, "check if are not reading out of file length");
         }
 
         /// <summary>
